@@ -30,11 +30,16 @@ public:
     void process();
     // 初始化新接收的连接
     void init(int sockfd, const sockaddr_in& addr); 
+    // 关闭连接
+    void close_conn();
+    bool read(); // 非阻塞读
+    bool write(); // 非阻塞写
 
     ~http_conn();
 
 private:
-
+    int m_sockfd; // 该HTTP连接的socket
+    sockaddr_in m_address; // 通信的socket地址
 };
 
 
