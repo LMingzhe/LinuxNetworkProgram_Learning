@@ -66,9 +66,11 @@ int main(int argc, char const *argv[])
         exit(-1);
     }
 
-    // 设置端口复用
-    // SO_REUSEADDR 是一个套接字选项常量，用于告诉内核在 bind 调用中重新使用处于 TIME_WAIT 状态的套接字地址。
-    // 这对于服务器程序在关闭后快速重启并绑定到同一端口号是非常有用的。
+    /**
+     * @brief 设置端口复用
+     * SO_REUSEADDR 是一个套接字选项常量，用于告诉内核在 bind 调用中重新使用处于 TIME_WAIT 状态的套接字地址。
+     * 这对于服务器程序在关闭后快速重启并绑定到同一端口号是非常有用的。
+     */
     int reuse = 1;
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
@@ -133,11 +135,14 @@ int main(int argc, char const *argv[])
                 users[connfd].init(connfd, client_address);
 
             } else if (events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
-                // EPOLLRDHUP 表示对端断开连接或者半关闭状态，即远程端关闭了连接或者发生了对端异常的情况。
-                // EPOLLHUP 表示发生了挂起事件，通常表示连接被挂起，或者对端关闭了连接，或者出现了其他异常情况。
-                // EPOLLERR 表示发生了错误事件，通常是指出现了一些异常情况，如连接错误或其他错误。
-                // 在这段代码中，& 是位操作符，用来检查 events[i].events 中是否包含 EPOLLRDHUP、EPOLLHUP 或 EPOLLERR 中的任何一个标志。
-                // 如果 events[i].events 中包含这些标志中的任意一个，表达式的结果就不为零，表示发生了对应的事件。
+                /**
+                 * @brief 
+                 * EPOLLRDHUP 表示对端断开连接或者半关闭状态，即远程端关闭了连接或者发生了对端异常的情况。
+                 * EPOLLHUP 表示发生了挂起事件，通常表示连接被挂起，或者对端关闭了连接，或者出现了其他异常情况。
+                 * EPOLLERR 表示发生了错误事件，通常是指出现了一些异常情况，如连接错误或其他错误。
+                 * 在这段代码中，& 是位操作符，用来检查 events[i].events 中是否包含 EPOLLRDHUP、EPOLLHUP 或 EPOLLERR 中的任何一个标志。
+                 * 如果 events[i].events 中包含这些标志中的任意一个，表达式的结果就不为零，表示发生了对应的事件。
+                 */
 
                 // 对方异常断开或者错误等事件
                 users[sockfd].close_conn();
