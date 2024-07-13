@@ -1,11 +1,23 @@
 #include "http_conn.h" 
 
+// 定义HTTP响应的一些状态信息
+const char* ok_200_title = "OK";
+const char* error_400_title = "Bad Request";
+const char* error_400_form = "400 error";
+const char* error_403_title = "Forbidden";
+const char* error_403_form = "403 error";
+const char* error_404_title = "Not Found";
+const char* error_404_form = "404 error";
+const char* error_500_title = "Internal Error";
+const char* error_500_form = "500 error";
+
 // 静态成员变量外部初始化
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
 const int http_conn::READ_BUFFER_SIZE = 2048;
 const int http_conn::WRITE_BUFFER_SIZE = 1024;
 
+const char* doc_root = "/home/zhe/LinuxNetwork_Learning/LinuxWebServer/resources";
 
 // 初始化连接
 void http_conn::init(int sockfd, const sockaddr_in& addr)
@@ -20,6 +32,26 @@ void http_conn::init(int sockfd, const sockaddr_in& addr)
     // 添加到epoll对象中
     addfd(m_epollfd, m_sockfd, true);
     m_user_count++;
+
+    init();
+}
+
+// 初始化连接其余的信息
+void http_conn::init()
+{
+    m_read_idx = 0;
+    m_check_state = CHECK_STATE_REQUESTLINE;
+    m_start_line = 0;
+    m_checked_index = 0;
+    m_method = GET;
+    m_url = 0;
+    m_version = 0;
+    m_linger = false;
+    m_content_length = 0;
+    m_host = 0;
+
+    bzero(m_read_buf, READ_BUFFER_SIZE);
+    // memset(m_read_buf, 0, READ_BUFFER_SIZE);
 }
 
 // 关闭连接（不是关闭文件描述符）
@@ -72,9 +104,67 @@ bool http_conn::read()
     return true;
 }
 
+// 主状态机，解析请求
 http_conn::HTTP_CODE http_conn::process_read()
 {
-    
+    LINE_STATUS line_status = LINE_OK;
+    HTTP_CODE ret = NO_REQUEST;
+
+    char* text = 0;
+
+    while ((m_check_state == CHECK_STATE_CONTENT) && (line_status == LINE_OK) 
+                || (line_status = parse_line()) == LINE_OK) // 解析到了一行完整的数据，或者解析到了请求体，也是完整的数据
+    {
+        // 获取一行数据
+        text = get_line();
+        m_start_line = m_checked_index;
+        std::cout << "get 1 http line: " << text << std::endl;
+
+        // 主状态机处理
+        switch (m_check_state)
+        {
+            case CHECK_STATE_REQUESTLINE:
+            {
+                ret = parse_request_line(text);
+                if (ret == BAD_REQUEST)
+                {
+                    return BAD_REQUEST;
+                }
+                break;
+            }
+
+            case CHECK_STATE_HEADER:
+            {
+                ret = parse_headers(text);
+                if (ret == BAD_REQUEST)
+                {
+                    return BAD_REQUEST;
+                } else if (ret = GET_REQUEST) {
+                    return do_request();
+                }
+                break;
+            }
+
+            case CHECK_STATE_CONTENT:
+            {
+                ret = parse_content(text);
+                if (ret == GET_REQUEST)
+                {
+                    return do_request();
+                }
+                line_status = LINE_OPEN; // 失败，设置为LINE_OPEN;
+                break;
+            }
+
+            default:
+            {
+                return INTERNAL_ERROR;
+            }
+        }
+
+        return NO_REQUEST;
+    }
+                
 }
 
 
@@ -83,13 +173,173 @@ bool http_conn::write()
     return true;
 }
 
+// 根据HTTP服务器请求的结果，决定返回给客户端的内容
+bool http_conn::process_write(HTTP_CODE ret)
+{
+    switch (ret)
+    {
+        case 
+    }
+}
+
 // 由线程池中的工作线程调用，这是处理HTTP请求的入口函数
 void http_conn::process()
 {
     // 解析HTTP请求
+    HTTP_CODE read_ret = process_read();
+    if (read_ret == NO_REQUEST)
+    {
+        modfd(m_epollfd, m_sockfd, EPOLLIN);
+        return;
+    }
 
     // 生成响应
+    bool write_ret = process_write(read_ret);
+    if (!write_ret)
+    {
+        close_conn();
+    } else {
+        modfd(m_epollfd, m_sockfd, EPOLLOUT);
+    }
+    
 }
+
+// 解析HTTP请求行，获得请求方法，目标URL，HTTP版本
+http_conn::HTTP_CODE http_conn::parse_request_line(char* text)
+{
+    // GET /index.html HTTP/1.1
+    // 查找字符串 text 中第一个包含 " \t" 中任何字符的位置，并返回该位置的指针
+    m_url = strpbrk(text, " \t");
+
+    // GET\0/index.html HTTP/1.1
+    *m_url++ = '\0';
+
+    char* method = text;
+    if (strcasecmp(method, "GET") == 0)
+    {
+        m_method = GET;
+    } else {
+        return BAD_REQUEST;
+    }
+
+    // /index.html\0HTTP/1.1
+    m_version = strpbrk(m_url, " \t");
+    if (!m_version)
+    {
+        return BAD_REQUEST;
+    }
+    *m_version++ = '\0';
+    if (strcasecmp(m_version, "HTTP/1.1") != 0)
+    {
+        return BAD_REQUEST;
+    }
+
+    // http://192.168.1.1:10000/index.html
+    // 比较m_url 字符串的前 7 个字符与 "http://" 是否完全相同，相同返回0，不同返回非零值
+    if (strncasecmp(m_url, "http://", 7) == 0)
+    {
+        m_url += 7; // 192.168.1.1:10000/index.html
+        m_url = strchr(m_url, '/');
+    }
+    if (!m_url || m_url[0] != '/')
+    {
+        return BAD_REQUEST;
+    }
+
+    m_check_state = CHECK_STATE_HEADER; // 主状态机变为检查请求头
+    return NO_REQUEST;
+}
+
+// 解析HTTP请求的一个头部信息
+http_conn::HTTP_CODE http_conn::parse_headers(char* text)
+{
+    // 遇到空行，表示头部字段解析完毕
+    if (text[0] == '\0')
+    {
+        // 如果HTTP还有请求体信息，则还需要读取m_content_length字节的消息体
+        // 状态机转移到CHECK_STATE_CONTENT状态
+        if (m_content_length != 0)
+        {
+            m_check_state = CHECK_STATE_CONTENT;
+            return NO_REQUEST;
+        }
+        // 否则说明我们已经得到了一个完整的HTTP请求
+        return GET_REQUEST;
+    } else if (strncasecmp(text, "Connection:", 11) == 0) {
+        // 处理Connection头部字段，Connection：Keep-alive
+        text += 11;
+        // strspn返回字符串 text 开头连续包含在字符串 " \t" 中的字符数目（空格和制表符的集合）。
+        text += strspn(text, " \t"); // text = strpbrk(text, " \t");
+        if (strcasecmp(text, "keep-alive") == 0)
+        {
+            m_linger = true;
+        }
+    } else if (strncasecmp(text, "Content-Length", 15) == 0) {
+        // 处理Content-Length头部字段
+        text += 15;
+        text += strspn(text, " \t");
+        m_content_length = atol(text);
+    } else if (strncasecmp(text, "Host:", 5) == 0) {
+        // 处理Host头部字段
+        text += 5;
+        text += strspn(text, " \t");
+        m_host = text;
+    } else {
+        std::cout << "unknow header: " << text << std::endl;
+    }
+    return NO_REQUEST;
+}
+
+// 解析请求体，这里没有真正的解析HTTP请求体，只是判断它是否被完整的读入
+http_conn::HTTP_CODE http_conn::parse_content(char* text)
+{
+    if (m_read_idx >= m_content_length + m_checked_index)
+    {
+        text[m_content_length] = '\0';
+        return GET_REQUEST;
+    }
+    return NO_REQUEST;
+}
+
+// 解析一行数据，判断依据 '\r\n'
+http_conn::LINE_STATUS http_conn::parse_line()
+{
+    char temp;
+    for ( ; m_checked_index < m_read_idx; ++m_checked_index)
+    {
+        temp = m_read_buf[m_checked_index];
+        if (temp == '\r')
+        {
+            if (m_checked_index + 1 == m_read_idx)
+            {
+                return LINE_OPEN;
+            } else if (m_read_buf[m_checked_index + 1] == '\n') {
+                m_read_buf[m_checked_index++] = '\0';
+                m_read_buf[m_checked_index++] = '\0';
+                return LINE_OK;
+            }
+            return LINE_BAD;
+        } else if (temp == '\n') {
+            if (m_checked_index > 1 && m_read_buf[m_checked_index - 1] == '\r')
+            {
+                m_read_buf[m_checked_index - 1] = '\0';
+                m_read_buf[m_checked_index++] = '\0';
+                return LINE_OK;
+            }
+            return LINE_BAD;
+        }
+        return LINE_OPEN;
+    }
+}
+
+// 当得到一个完整、正确的HTTP请求时，我们就分析目标文件的属性，
+// 如果目标文件存在、对所有用户可读，且不是目录，则使用mmap将其映射
+// 到内存地质m_file_address处，并告诉调用者获取文件成功
+http_conn::HTTP_CODE http_conn::do_request()
+{
+    
+}
+
 
 // 设置文件描述符非阻塞
 void setnonblocking(int fd)
