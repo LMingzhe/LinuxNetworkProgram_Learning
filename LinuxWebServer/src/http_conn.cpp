@@ -14,10 +14,26 @@ const char* error_500_form = "500 error";
 // 静态成员变量外部初始化
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
+const int http_conn::FILENAME_LEN = 200;
 const int http_conn::READ_BUFFER_SIZE = 2048;
 const int http_conn::WRITE_BUFFER_SIZE = 1024;
 
 const char* doc_root = "/home/zhe/LinuxNetwork_Learning/LinuxWebServer/resources";
+
+bool http_conn::add_response(const char* format, ...)
+{
+    // todo
+}
+
+bool http_conn::add_status_line(int status, const char* title)
+{
+    return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
+}
+
+bool http_conn::add_headers(int content_len)
+{
+
+}
 
 // 初始化连接
 void http_conn::init(int sockfd, const sockaddr_in& addr)
@@ -49,9 +65,15 @@ void http_conn::init()
     m_linger = false;
     m_content_length = 0;
     m_host = 0;
+    m_write_idx = 0;   
+    bytes_to_send = 0;
+    bytes_have_send = 0;
+
 
     bzero(m_read_buf, READ_BUFFER_SIZE);
     // memset(m_read_buf, 0, READ_BUFFER_SIZE);
+    bzero(m_write_buf, WRITE_BUFFER_SIZE);
+    bzero(m_real_file, FILENAME_LEN);
 }
 
 // 关闭连接（不是关闭文件描述符）
@@ -170,15 +192,17 @@ http_conn::HTTP_CODE http_conn::process_read()
 
 bool http_conn::write()
 {
+    //todo
     return true;
 }
 
 // 根据HTTP服务器请求的结果，决定返回给客户端的内容
 bool http_conn::process_write(HTTP_CODE ret)
 {
+    // todo
     switch (ret)
     {
-        case 
+
     }
 }
 
@@ -337,7 +361,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
 // 到内存地质m_file_address处，并告诉调用者获取文件成功
 http_conn::HTTP_CODE http_conn::do_request()
 {
-    
+    // todo
 }
 
 
